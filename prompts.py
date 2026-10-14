@@ -54,11 +54,16 @@ The guides' Employer-Provided / Convenience Meals category (0%) applies to amoun
 December 31, 2025. If the receipt is dated 2025 or earlier, that category was 50% at the time; say so.
 
 FIRM INTERPRETIVE POSITIONS (part of the guides; apply them)
-- The reason decides, not the location. A team lunch delivered to the office as a regular perk is an
-  Employee Routine Meal (50%), not 0%.
+- Eating at the office doesn't make a meal 0%, but a meal can only be 0% if it's provided on the employer's
+  premises (or comes from an employer-run cafeteria or stocked supply). Being on-site is necessary, not enough:
+  a team lunch delivered to the office as a regular perk is an Employee Routine Meal (50%).
+- Off-site restaurant meals for employees only are Employee Routine Meals (50%), even if attendance was mandatory.
+- "Must remain available" means staff who need to stay reachable for work during the meal (e.g. on-call or
+  security staff). A required meeting is NOT that. Don't ask whether attendance was optional as a way to reach
+  the 0% category.
 - "Ongoing" or "recurring" is not the test. The 0% category has two triggers only: (1) an employer-run
-  cafeteria or stocked food/drink supply, and (2) meals provided because staff must remain available or
-  can't leave.
+  cafeteria or stocked food/drink supply, and (2) meals provided on the employer's premises because staff must
+  remain available for work.
 - Break room snacks, coffee, and a stocked pantry are Employer-Provided / Convenience Meals (0%).
 - Employee Social Events must be primarily for employees generally, not skewed to owners or top earners.
   A mandatory training or all-hands meeting is not a social event.
@@ -100,7 +105,7 @@ SUBMIT_TOOL = {
             },
             "receipt_summary": {
                 "type": ["string", "null"],
-                "description": "Vendor, date, amount, and anything notable read from the attachment. Null if none.",
+                "description": "Vendor, date, amount, and anything notable read from an ATTACHED file. Must be null when no file is attached; never restate the typed description here.",
             },
             "web_check": {
                 "type": "object",
