@@ -37,7 +37,7 @@ Edit `prompts.py` only if one of the firm interpretive positions changes (e.g. "
 
 ## Cost and privacy
 
-- Each submission calls the Anthropic API on the firm's key: model usage plus up to 4 web searches (adjust with `WEB_SEARCH_MAX_USES`). The guides are cached between requests to reduce cost.
+- Each submission calls the Anthropic API on the firm's key: model usage plus usually one web search (max 2, adjust with `WEB_SEARCH_MAX_USES`), limited to primary sources (irs.gov, the Code, regs, Federal Register). The guides are sent as plain text, receipt photos are downsized, and receipt PDFs are capped at 3 pages. A usage line under each answer shows tokens and searches; set `SHOW_USAGE = "false"` in secrets to hide it.
 - Receipts are sent to Anthropic for processing. The app stores nothing; each browser session is independent.
 - The password screen keeps the public link from spending the firm's API budget. Remove `APP_PASSWORD` from secrets to turn it off.
 

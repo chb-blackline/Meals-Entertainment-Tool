@@ -7,6 +7,7 @@ import io
 from datetime import date
 from pathlib import Path
 
+import pypdfium2 as pdfium
 from PIL import Image
 
 from prompts import SUBMIT_TOOL, SYSTEM_PROMPT
@@ -30,7 +31,8 @@ GUIDES = [
 ]
 
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
-MAX_IMAGE_SIDE = 2000
+MAX_IMAGE_SIDE = 1568   # Claude downsizes anything larger anyway
+MAX_RECEIPT_PAGES = 3
 MAX_LOOPS = 6  # guards against an endless pause_turn / retry cycle
 
 
@@ -42,25 +44,29 @@ def _b64(data: bytes) -> str:
     return base64.standard_b64encode(data).decode()
 
 
-def guide_blocks() -> list[dict]:
-    """Both guides as PDF document blocks. The cache breakpoint on the last one lets
-    the system prompt, tools, and guides be reused across requests at lower cost."""
-    blocks = []
-    for i, (title, path) in enumerate(GUIDES):
-        block = {
-            "type": "document",
-            "source": {"type": "base64", "media_type": "application/pdf", "data": _b64(path.read_bytes())},
-            "title": f"FIRM GUIDE: {title}",
-        }
-        if i == len(GUIDES) - 1:
-            block["cache_control"] = {"type": "ephemeral"}
-        blocks.append(block)
-    return blocks
+def _pdf_text(path: Path) -> str:
+    pdf = pdfium.PdfDocument(str(path))
+    text = "\n".join(page.get_textpage().get_text_range() for page in pdf)
+    pdf.close()
+    return text
+
+
+# Guides are sent as plain text: the same words at a fraction of the tokens of PDF page images.
+GUIDE_TEXT = "\n\n".join(f"===== FIRM GUIDE: {title} =====\n{_pdf_text(path)}" for title, path in GUIDES)
 
 
 def attachment_block(data: bytes, mime: str, name: str) -> dict:
-    """Receipt/invoice as an image or PDF block. PDFs are sent whole (all pages)."""
+    """Receipt/invoice as an image or PDF block (PDFs capped at the first few pages)."""
     if mime == "application/pdf":
+        src = pdfium.PdfDocument(data)
+        if len(src) > MAX_RECEIPT_PAGES:
+            trimmed = pdfium.PdfDocument.new()
+            trimmed.import_pages(src, list(range(MAX_RECEIPT_PAGES)))
+            buf = io.BytesIO()
+            trimmed.save(buf)
+            data = buf.getvalue()
+            trimmed.close()
+        src.close()
         return {
             "type": "document",
             "source": {"type": "base64", "media_type": "application/pdf", "data": _b64(data)},
@@ -68,7 +74,7 @@ def attachment_block(data: bytes, mime: str, name: str) -> dict:
         }
     if mime in IMAGE_TYPES:
         img = Image.open(io.BytesIO(data))
-        if max(img.size) > MAX_IMAGE_SIDE or len(data) > 4_500_000:
+        if max(img.size) > MAX_IMAGE_SIDE or len(data) > 1_500_000:
             img.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))
             buf = io.BytesIO()
             img.convert("RGB").save(buf, format="JPEG", quality=85)
@@ -78,7 +84,7 @@ def attachment_block(data: bytes, mime: str, name: str) -> dict:
 
 
 def first_user_message(description: str, entity_type: str, attachment: dict | None) -> dict:
-    content = guide_blocks()
+    content = []
     if attachment:
         content.append(attachment)
     text = description.strip() or "See the attached receipt/invoice."
@@ -109,10 +115,14 @@ def _harvest_urls(content) -> list[dict]:
     return out
 
 
-def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[dict, str, list[dict]]:
+def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[dict, str, list[dict], dict]:
     """Runs one turn. `messages` is mutated in place (assistant turns appended).
-    Returns (guidance, tool_use_id, harvested_sources)."""
-    system = [{"type": "text", "text": SYSTEM_PROMPT.format(today=date.today().strftime("%B %d, %Y"))}]
+    Returns (guidance, tool_use_id, harvested_sources, usage)."""
+    system = [
+        {"type": "text", "text": SYSTEM_PROMPT + "\n\n" + GUIDE_TEXT, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": f"Today's date is {date.today():%B %d, %Y}."},  # after the cache point
+    ]
+    usage = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "searches": 0, "calls": 0}
     tools = [search_tool, SUBMIT_TOOL]
     harvested: list[dict] = []
     tool_choice = {"type": "auto"}
@@ -124,10 +134,18 @@ def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[di
         )
         messages.append({"role": "assistant", "content": resp.content})
         harvested += _harvest_urls(resp.content)
+        u = resp.usage
+        usage["calls"] += 1
+        usage["input"] += getattr(u, "input_tokens", 0) or 0
+        usage["output"] += getattr(u, "output_tokens", 0) or 0
+        usage["cache_read"] += getattr(u, "cache_read_input_tokens", 0) or 0
+        usage["cache_write"] += getattr(u, "cache_creation_input_tokens", 0) or 0
+        stu = getattr(u, "server_tool_use", None)
+        usage["searches"] += (getattr(stu, "web_search_requests", 0) or 0) if stu else 0
 
         for block in resp.content:
             if getattr(block, "type", None) == "tool_use" and block.name == "submit_guidance":
-                return dict(block.input), block.id, harvested
+                return dict(block.input), block.id, harvested, usage
 
         if resp.stop_reason == "pause_turn":
             continue  # long server-side search; resend to let it finish
