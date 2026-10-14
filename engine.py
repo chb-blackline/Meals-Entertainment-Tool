@@ -11,10 +11,22 @@ from PIL import Image
 
 from prompts import SUBMIT_TOOL, SYSTEM_PROMPT
 
-REF_DIR = Path(__file__).parent / "reference"
+APP_DIR = Path(__file__).parent
+
+
+def _find(name: str) -> Path:
+    """Guides may live in /reference or at the top level of the repo."""
+    for folder in (APP_DIR / "reference", APP_DIR):
+        if (folder / name).exists():
+            return folder / name
+    raise FileNotFoundError(
+        f"Guide '{name}' not found. Put it in the repo's top level or a 'reference' folder, named exactly that."
+    )
+
+
 GUIDES = [
-    ("General (taxable business) methodology", REF_DIR / "ME_Methodology_General.pdf"),
-    ("Nonprofit methodology", REF_DIR / "ME_Methodology_Nonprofit.pdf"),
+    ("General (taxable business) methodology", _find("ME_Methodology_General.pdf")),
+    ("Nonprofit methodology", _find("ME_Methodology_Nonprofit.pdf")),
 ]
 
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
