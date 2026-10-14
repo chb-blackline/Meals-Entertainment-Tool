@@ -81,9 +81,12 @@ def build_pdf(r: dict, entity: str, description: str, filename: str | None, qa: 
     story.append(Paragraph("Result", H2))
     story.append(_box([
         Paragraph(head, ParagraphStyle("hd", parent=BIG, textColor=border)),
-        Paragraph(_t(r.get("category")), BOLD),
+        Paragraph(f"Expense type: {_t(r.get('category'))}", BOLD),
         Spacer(1, 3),
         Paragraph(_t(r.get("reasoning")), BASE),
+        Spacer(1, 3),
+        Paragraph("Post to the client's own account that carries this treatment. "
+                  "The expense type is a description, not an account name.", SMALL),
     ], bg, border))
 
     # Web check

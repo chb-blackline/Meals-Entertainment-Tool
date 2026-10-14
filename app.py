@@ -31,7 +31,7 @@ st.markdown(
     """
 <style>
 /* tighter page */
-.block-container {max-width: 780px; padding-top: 1.6rem; padding-bottom: 2rem;}
+.block-container {max-width: 780px; padding-top: 3.6rem; padding-bottom: 2rem;}
 [data-testid="stVerticalBlock"] {gap: 0.55rem;}
 h1.app-title {font-size: 1.45rem; margin: 0 0 0.1rem 0; padding: 0;}
 /* compact info box */
@@ -64,12 +64,17 @@ def gate() -> None:
     if not pw or st.session_state.get("authed"):
         return
     st.markdown('<h1 class="app-title">🧾 Meals &amp; Entertainment Guidance</h1>', unsafe_allow_html=True)
-    entered = st.text_input("Team password", type="password")
-    if entered:
+    st.caption("BlackLine Solutions, LLC · team tool")
+    with st.form("login", border=True):
+        st.markdown("Enter the team password to access this app.")
+        entered = st.text_input("Team password", type="password", label_visibility="collapsed",
+                                placeholder="Password")
+        ok = st.form_submit_button("Sign in", type="primary")
+    if ok:
         if hmac.compare_digest(entered, pw):
             st.session_state.authed = True
             st.rerun()
-        st.error("Incorrect password.")
+        st.error("Incorrect password. Ask Hardy if you need it.")
     st.stop()
 
 
@@ -215,8 +220,10 @@ if r:
             css, head = "np", r.get("functional_class") or "Functional class"
         st.markdown(
             f'<div class="result-card {css}"><div class="head">{html.escape(head)}</div>'
-            f'<div class="cat">{html.escape(r.get("category") or "")}</div>'
-            f'<div>{html.escape(r.get("reasoning", ""))}</div></div>',
+            f'<div class="cat">Expense type: {html.escape(r.get("category") or "")}</div>'
+            f'<div>{html.escape(r.get("reasoning", ""))}</div>'
+            f'<div style="font-size:0.8rem;margin-top:6px;opacity:0.75">Post to the client\'s own account '
+            f'that carries this treatment. The expense type is a description, not an account name.</div></div>',
             unsafe_allow_html=True,
         )
 

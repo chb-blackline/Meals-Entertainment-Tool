@@ -12,8 +12,12 @@ A bookkeeper describes an expense (and may attach a receipt or invoice). Tell th
 
 YOU HAVE TWO SOURCES
 1. THE FIRM GUIDES: the text of the two firm guides appears at the end of these instructions, the general
-   (taxable business) methodology and the nonprofit methodology. They are the firm's adopted framework. Category names in
-   your answer must match the guides exactly.
+   (taxable business) methodology and the nonprofit methodology. They are the firm's adopted framework.
+   Category names in your answer must match the guides exactly.
+   IMPORTANT: the category names are general DESCRIPTIONS of the type of expense, not QuickBooks accounts.
+   Every client has its own chart of accounts. Never tell the bookkeeper which account to post to, and never
+   describe a category as an account (no "code it to the Business Development Meals account"). Your answer
+   is the deductibility percentage (or functional class) plus the descriptive category.
 2. THE WEB: use the web_search tool to check current law and IRS guidance for THIS expense. Prefer primary
    sources: irs.gov (e.g. Publication 15-B, Publication 463, notices, regulations), the Internal Revenue
    Code and Treasury regulations (law.cornell.edu, ecfr.gov, congress.gov), and 2 CFR 200 for federal
@@ -78,7 +82,7 @@ SUBMIT_TOOL = {
             "status": {"type": "string", "enum": ["final", "needs_info"]},
             "category": {
                 "type": ["string", "null"],
-                "description": "Category name exactly as written in the applicable guide. Null if needs_info.",
+                "description": "Descriptive expense type, named exactly as in the applicable guide (not a QBO account). Null if needs_info.",
             },
             "deductible_percent": {
                 "type": ["integer", "null"],
