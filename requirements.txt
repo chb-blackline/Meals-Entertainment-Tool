@@ -1,3 +1,4 @@
 streamlit>=1.40
 anthropic>=0.69
 pillow>=10.0
+pypdfium2>=4.0

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hmac
 import html
+import io
 
 import anthropic
+import pypdfium2 as pdfium
 import streamlit as st
 
 import engine
@@ -115,6 +117,29 @@ st.info(
     icon="ℹ️",
 )
 
+@st.cache_data
+def guide_pages(path_str: str) -> list[bytes]:
+    """Render each PDF page to a PNG so the guide can be viewed in the app."""
+    pdf = pdfium.PdfDocument(path_str)
+    pages = []
+    for page in pdf:
+        img = page.render(scale=2).to_pil()
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        pages.append(buf.getvalue())
+    pdf.close()
+    return pages
+
+
+st.markdown("**📘 Current rules & flowcharts**")
+for title, path in engine.GUIDES:
+    with st.expander(f"View: {title}"):
+        st.download_button(f"Download PDF", path.read_bytes(), file_name=path.name,
+                           mime="application/pdf", key=f"dl_{path.stem}")
+        for png in guide_pages(str(path)):
+            st.image(png, width="stretch")
+st.divider()
+
 fid = ss.form_id
 entity = st.radio("Client type", ["Business (taxable)", "Nonprofit"], horizontal=True, key="entity")
 desc = st.text_area(
@@ -122,20 +147,15 @@ desc = st.text_area(
     placeholder="e.g. Took a prospective client to dinner to discuss a new engagement",
     key=f"desc_{fid}",
 )
-upload = st.file_uploader(
-    "Upload receipt / invoice (optional)",
-    type=["pdf", "png", "jpg", "jpeg", "webp", "gif"],
-    key=f"file_{fid}",
-)
+with st.container(border=True):
+    st.markdown("**📎 Receipt or invoice (optional)**")
+    upload = st.file_uploader(
+        "Drag a file into the box below, or click Browse files. PDF, PNG, JPG, WEBP, or GIF.",
+        type=["pdf", "png", "jpg", "jpeg", "webp", "gif"],
+        key=f"file_{fid}",
+    )
 
-c1, c2 = st.columns([3, 1])
-with c1:
-    with st.popover("📘 View current rules & flowchart"):
-        for title, path in engine.GUIDES:
-            st.download_button(f"Download: {title}", path.read_bytes(), file_name=path.name,
-                               mime="application/pdf", use_container_width=True)
-with c2:
-    submit = st.button("Submit", type="primary", use_container_width=True)
+submit = st.button("Submit", type="primary", width="stretch")
 
 if submit:
     if not desc.strip() and not upload:
