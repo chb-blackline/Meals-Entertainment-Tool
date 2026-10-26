@@ -24,6 +24,41 @@ TONE = {
 INK = colors.HexColor("#1f2937")
 DIM = colors.HexColor("#6b7280")
 
+TREATMENT_ORDER = ["100%", "50%", "0%", "Program Services", "Management & General", "Fundraising",
+                   "Personal / not business", "Not an expense"]
+PCT = {"100%": 1.0, "50%": 0.5, "0%": 0.0}
+
+
+def summarize(lines: list[dict]) -> list[dict]:
+    """Totals by treatment, computed here rather than trusted from the model."""
+    totals: dict[str, dict] = {}
+    for ln in lines:
+        t = ln.get("treatment") or "Not an expense"
+        row = totals.setdefault(t, {"treatment": t, "count": 0, "amount": 0.0})
+        row["count"] += 1
+        row["amount"] += float(ln.get("amount") or 0)
+    out = []
+    for t in sorted(totals, key=lambda k: TREATMENT_ORDER.index(k) if k in TREATMENT_ORDER else 99):
+        row = totals[t]
+        row["deductible"] = round(row["amount"] * PCT[t], 2) if t in PCT else None
+        row["amount"] = round(row["amount"], 2)
+        out.append(row)
+    return out
+
+
+def total_charges(lines: list[dict]) -> float:
+    """Sum of everything except payments, credits, and balance-forward lines."""
+    return round(sum(float(ln.get("amount") or 0) for ln in lines if ln.get("treatment") != "Not an expense"), 2)
+
+
+def money(x: float) -> str:
+    return f"-${abs(x):,.2f}" if x < 0 else f"${x:,.2f}"
+
+
+LINE_TONE = {"100%": TONE[100][0], "50%": TONE[50][0], "0%": TONE[0][0],
+             "Personal / not business": colors.HexColor("#f3f4f6"), "Not an expense": colors.white}
+
+
 BASE = ParagraphStyle("base", fontName="Helvetica", fontSize=9.5, leading=12.5, textColor=INK, alignment=TA_LEFT)
 SMALL = ParagraphStyle("small", parent=BASE, fontSize=8, leading=10, textColor=DIM)
 H1 = ParagraphStyle("h1", parent=BASE, fontName="Helvetica-Bold", fontSize=15, leading=18)
@@ -70,24 +105,61 @@ def build_pdf(r: dict, entity: str, description: str, filename: str | None, qa: 
         story.append(Paragraph(f"<b>A:</b> {_t(item['answer'])}", BASE))
 
     # Result
+    lines = r.get("line_items") or []
     pct = r.get("deductible_percent")
     bg, border = TONE.get(pct, TONE[None])
-    if pct is not None:
-        head = f"{pct}% deductible"
-        if r.get("functional_class"):
-            head += f"  |  {_t(r['functional_class'])}"
+    if lines:
+        story.append(Paragraph("Result", H2))
+        summ = summarize(lines)
+        srows = []
+        for s in summ:
+            ded = f" &nbsp;(deductible: {money(s['deductible'])})" if s["deductible"] is not None else ""
+            srows.append(Paragraph(f"<b>{_t(s['treatment'])}</b>: {money(s['amount'])} "
+                                   f"({s['count']} {'charge' if s['count'] == 1 else 'charges'}){ded}", BASE))
+        story.append(_box([
+            Paragraph("Mixed treatment: see line items", ParagraphStyle("hd", parent=BIG, textColor=TONE[None][1])),
+            Spacer(1, 2), Paragraph(_t(r.get("reasoning")), BASE), Spacer(1, 4), *srows,
+            Paragraph(f"<b>Total charges reviewed: {money(total_charges(lines))}</b> "
+                      f"(excludes payments, credits, and balance forward)", BASE),
+        ], TONE[None][0], TONE[None][1]))
+        story.append(Spacer(1, 6))
+        cell = ParagraphStyle("cell", parent=BASE, fontSize=8, leading=10)
+        note = ParagraphStyle("note", parent=SMALL, fontSize=7, leading=8.5)
+        data = [[Paragraph(f"<b>{h}</b>", cell) for h in ("Date", "Charge", "Expense type", "Amount", "Treatment")]]
+        styles = [("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d3d1c7")),
+                  ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                  ("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (3, 0), (3, -1), "RIGHT"),
+                  ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]
+        for i, ln in enumerate(lines, start=1):
+            desc = [Paragraph(_t(ln.get("description")), cell)]
+            if ln.get("note"):
+                desc.append(Paragraph(_t(ln["note"]), note))
+            data.append([Paragraph(_t(ln.get("date")), cell), desc, Paragraph(_t(ln.get("category")), cell),
+                         Paragraph(money(float(ln.get("amount") or 0)), ParagraphStyle("amt", parent=cell, alignment=2)),
+                         Paragraph(f"<b>{_t(ln.get('treatment'))}</b>", cell)])
+            tone = LINE_TONE.get(ln.get("treatment"))
+            if tone:
+                styles.append(("BACKGROUND", (4, i), (4, i), tone))
+        tbl = Table(data, colWidths=[0.65 * inch, 2.55 * inch, 1.6 * inch, 0.85 * inch, 1.35 * inch], repeatRows=1)
+        tbl.setStyle(TableStyle(styles))
+        story.append(tbl)
     else:
-        head = _t(r.get("functional_class") or "Functional class")
-    story.append(Paragraph("Result", H2))
-    story.append(_box([
-        Paragraph(head, ParagraphStyle("hd", parent=BIG, textColor=border)),
-        Paragraph(f"Expense type: {_t(r.get('category'))}", BOLD),
-        Spacer(1, 3),
-        Paragraph(_t(r.get("reasoning")), BASE),
-        Spacer(1, 3),
-        Paragraph("Post to the client's own account that carries this treatment. "
-                  "The expense type is a description, not an account name.", SMALL),
-    ], bg, border))
+        if pct is not None:
+            head = f"{pct}% deductible"
+            if r.get("functional_class"):
+                head += f"  |  {_t(r['functional_class'])}"
+        else:
+            head = _t(r.get("functional_class") or "Functional class")
+        story.append(Paragraph("Result", H2))
+        story.append(_box([
+            Paragraph(head, ParagraphStyle("hd", parent=BIG, textColor=border)),
+            *([Paragraph(f"Expense type: {_t(r.get('category'))}", BOLD)] if r.get("category") else []),
+            Spacer(1, 3),
+            Paragraph(_t(r.get("reasoning")), BASE),
+            Spacer(1, 3),
+            Paragraph("Post to the client's own account that carries this treatment. "
+                      "The expense type is a description, not an account name.", SMALL),
+        ], bg, border))
 
     # Web check
     wc = r.get("web_check") or {}

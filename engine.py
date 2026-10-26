@@ -88,7 +88,8 @@ def first_user_message(description: str, entity_type: str, attachment: dict | No
     if attachment:
         content.append(attachment)
     text = description.strip() or "See the attached receipt/invoice."
-    content.append({"type": "text", "text": f"Entity type: {entity_type}\n\nExpense description: {text}"})
+    att_note = "A receipt/invoice is attached." if attachment else "NO attachment was provided; set receipt_summary to null."
+    content.append({"type": "text", "text": f"Entity type: {entity_type}\n{att_note}\n\nExpense description: {text}"})
     return {"role": "user", "content": content}
 
 
@@ -129,7 +130,7 @@ def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[di
 
     for _ in range(MAX_LOOPS):
         resp = client.messages.create(
-            model=model, max_tokens=4096, system=system, tools=tools,
+            model=model, max_tokens=8000, temperature=0, system=system, tools=tools,
             tool_choice=tool_choice, messages=messages,
         )
         messages.append({"role": "assistant", "content": resp.content})

@@ -211,21 +211,45 @@ if r:
                 if call(engine.reply_message(ss.tool_id, reply)):
                     st.rerun()
     else:
-        pct = r.get("deductible_percent")
-        if pct is not None:
-            css, head = f"pct-{pct}", f"{pct}% deductible"
-            if r.get("functional_class"):
-                head += f" · {r['functional_class']}"
+        lines = r.get("line_items") or []
+        acct_note = ('<div style="font-size:0.8rem;margin-top:6px;opacity:0.75">Post to the client\'s own account '
+                     'that carries each treatment. Expense types are descriptions, not account names.</div>')
+        if lines:
+            rows = ""
+            for s in report.summarize(lines):
+                ded = f" · deductible {report.money(s['deductible'])}" if s["deductible"] is not None else ""
+                n = s["count"]
+                rows += (f"<div><b>{html.escape(s['treatment'])}</b>: {report.money(s['amount'])} "
+                         f"({n} {'charge' if n == 1 else 'charges'}){ded}</div>")
+            st.markdown(
+                f'<div class="result-card np"><div class="head">Mixed treatment: see line items</div>'
+                f'<div style="margin-bottom:6px">{html.escape(r.get("reasoning", ""))}</div>{rows}'
+                f'<div style="margin-top:4px"><b>Total charges reviewed: {report.money(report.total_charges(lines))}</b> '
+                f'<span style="opacity:0.75">(excludes payments, credits, and balance forward)</span></div>{acct_note}</div>',
+                unsafe_allow_html=True,
+            )
+            st.dataframe(
+                [{"Date": ln.get("date") or "", "Charge": ln.get("description", ""),
+                  "Amount": float(ln.get("amount") or 0), "Treatment": ln.get("treatment", ""),
+                  "Expense type": ln.get("category") or "", "Note": ln.get("note") or ""} for ln in lines],
+                hide_index=True, width="stretch",
+                column_config={"Amount": st.column_config.NumberColumn(format="$%.2f")},
+            )
         else:
-            css, head = "np", r.get("functional_class") or "Functional class"
-        st.markdown(
-            f'<div class="result-card {css}"><div class="head">{html.escape(head)}</div>'
-            f'<div class="cat">Expense type: {html.escape(r.get("category") or "")}</div>'
-            f'<div>{html.escape(r.get("reasoning", ""))}</div>'
-            f'<div style="font-size:0.8rem;margin-top:6px;opacity:0.75">Post to the client\'s own account '
-            f'that carries this treatment. The expense type is a description, not an account name.</div></div>',
-            unsafe_allow_html=True,
-        )
+            pct = r.get("deductible_percent")
+            if pct is not None:
+                css, head = f"pct-{pct}", f"{pct}% deductible"
+                if r.get("functional_class"):
+                    head += f" · {r['functional_class']}"
+            else:
+                css, head = "np", r.get("functional_class") or "Functional class"
+            cat = (f'<div class="cat">Expense type: {html.escape(r["category"])}</div>'
+                   if r.get("category") else "")
+            st.markdown(
+                f'<div class="result-card {css}"><div class="head">{html.escape(head)}</div>{cat}'
+                f'<div>{html.escape(r.get("reasoning", ""))}</div>{acct_note}</div>',
+                unsafe_allow_html=True,
+            )
 
         wc = r.get("web_check", {})
         discrepancies = r.get("discrepancies") or []
@@ -244,7 +268,7 @@ if r:
         else:
             st.warning(f"Web check inconclusive. {wc.get('summary', '')}")
 
-        if r.get("receipt_summary"):
+        if r.get("receipt_summary") and ss.get("last_file"):
             st.caption(f"**From the attachment:** {r['receipt_summary']}")
         if r.get("caveats"):
             st.caption(f"**Note:** {r['caveats']}")
@@ -257,8 +281,10 @@ if r:
                 for s in sources:
                     st.markdown(f"- [{s['title']}]({s['url']})")
 
+        if not ss.get("last_file"):
+            r = {**r, "receipt_summary": None}   # never show attachment details when nothing was attached
         pdf_bytes = report.build_pdf(r, entity_used, ss.get("last_desc", ""), ss.get("last_file"), ss.get("qa", []))
-        slug = re.sub(r"[^A-Za-z0-9]+", "-", r.get("category") or "result").strip("-")
+        slug = re.sub(r"[^A-Za-z0-9]+", "-", r.get("category") or ("Line-Items" if r.get("line_items") else "result")).strip("-")
         st.download_button("📄 Save this answer as PDF", pdf_bytes,
                            file_name=f"ME-Guidance_{slug}_{date.today():%Y-%m-%d}.pdf", mime="application/pdf")
 

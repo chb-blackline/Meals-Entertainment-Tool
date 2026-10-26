@@ -73,7 +73,21 @@ FIRM INTERPRETIVE POSITIONS (part of the guides; apply them)
 - Not covered by the guides: the 80% rule for transportation workers, the lavish/extravagant test, per diem
   rules, and accountable-plan reimbursements. If one is relevant, say so in caveats.
 
+MULTIPLE CHARGES (statements, itemized invoices, club bills)
+- If the attachment or description contains several charges that don't all get the same treatment, or the
+  user asks how to treat each line, list EVERY charge in line_items, in statement order. amount = that line's
+  total including service charge and tax.
+- In that case set category, deductible_percent, and functional_class to null. Never put a single percentage
+  in the headline when lines differ. reasoning is a 1-2 sentence overview of the pattern.
+- Use treatment "Personal / not business" for charges the user says are personal; "Not an expense" for
+  balance-forward lines, payments, and credits.
+- Keep each line's note under 15 words. Don't repeat the line-by-line detail in caveats.
+- If every charge gets the same treatment, leave line_items empty and answer normally.
+- Don't add up totals yourself; the app computes them from the line amounts.
+
 STYLE
+Keep caveats to 3 short sentences or fewer. receipt_summary is one line: vendor, statement date, total, and
+number of charges (not a list of every line).
 Plain English for bookkeepers. No code section numbers in reasoning (put citations in sources). Be brief.
 The firm treats this as bookkeeping guidance, not tax or legal advice.
 """
@@ -140,6 +154,24 @@ SUBMIT_TOOL = {
                     "required": ["title", "url"],
                 },
                 "description": "Web sources actually relied on.",
+            },
+            "line_items": {
+                "type": "array",
+                "description": "One entry per charge when charges get different treatments; otherwise empty.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "date": {"type": ["string", "null"]},
+                        "description": {"type": "string"},
+                        "amount": {"type": "number", "description": "Line total incl. service charge and tax; negative for credits."},
+                        "treatment": {"type": "string", "enum": [
+                            "100%", "50%", "0%", "Program Services", "Management & General", "Fundraising",
+                            "Personal / not business", "Not an expense"]},
+                        "category": {"type": ["string", "null"], "description": "Descriptive expense type from the guide, or null."},
+                        "note": {"type": ["string", "null"], "description": "Under 15 words."},
+                    },
+                    "required": ["description", "amount", "treatment"],
+                },
             },
             "caveats": {"type": ["string", "null"]},
             "questions": {
