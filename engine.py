@@ -11,7 +11,7 @@ from pathlib import Path
 import pypdfium2 as pdfium
 from PIL import Image
 
-from prompts import SUBMIT_TOOL, SYSTEM_PROMPT
+from prompts import LINE_ITEMS_TOOL, SUBMIT_TOOL, SYSTEM_PROMPT
 
 APP_DIR = Path(__file__).parent
 
@@ -55,18 +55,20 @@ def _user_text(messages: list[dict]) -> str:
     return " ".join(parts)
 
 
-def _needs_line_items(result: dict, messages: list[dict]) -> bool:
-    """True when a final answer should have line items but doesn't: the user asked for each charge,
-    or the answer itself describes more than one treatment."""
+def _needs_line_items(result: dict, messages: list[dict]) -> str | None:
+    """Why a final answer needs line items it doesn't have: "asked" (the user asked about each charge) or
+    "mixed" (an upload whose answer names more than one percentage). None if it's fine as is."""
     if result.get("status") != "final" or result.get("line_items"):
-        return False
+        return None
     if LINE_REQUEST.search(_user_text(messages)):
-        return True
+        return "asked"
     has_attachment = any(isinstance(b, dict) and b.get("type") in ("document", "image")
                          for m in messages if m.get("role") == "user" and isinstance(m.get("content"), list)
                          for b in m["content"])
     answer = " ".join(str(result.get(k) or "") for k in ("reasoning", "caveats"))
-    return has_attachment and len(set(PCTS.findall(answer))) > 1
+    if has_attachment and len(set(PCTS.findall(answer))) > 1:
+        return "mixed"
+    return None
 
 
 class GuidanceError(Exception):
@@ -160,7 +162,7 @@ def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[di
     tools = [search_tool, SUBMIT_TOOL]
     harvested: list[dict] = []
     tool_choice = {"type": "auto"}
-    line_retry_done = False
+    line_retry_done, why, first_result = False, None, None
 
     for _ in range(MAX_LOOPS):
         resp = client.messages.create(
@@ -182,24 +184,34 @@ def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[di
                           if getattr(b, "type", None) == "tool_use" and b.name == "submit_guidance"), None)
         if submitted:
             result = dict(submitted.input)
-            if not line_retry_done and _needs_line_items(result, messages):
-                # One forced redo: the answer covers charges with different treatments but has no line items.
-                line_retry_done = True
-                messages.append({"role": "user", "content": [
-                    {"type": "tool_result", "tool_use_id": submitted.id,
-                     "content": "Rejected: line_items missing.", "is_error": True},
-                    {"type": "text", "text": (
-                        "This expense has charges that get different treatments (or the user asked about each "
-                        "charge). Resubmit with line_items listing EVERY charge, in statement order, with its "
-                        "date, description, amount (incl. service charge and tax), treatment, category, and a "
-                        "short note. Set category, deductible_percent, and functional_class to null. Keep caveats "
-                        "to 3 short sentences and receipt_summary to one line. No new web searches. If there is "
-                        "really only one charge, or every charge gets the same treatment, resubmit your answer "
-                        "unchanged with line_items empty.")},
-                ]})
-                tool_choice = {"type": "tool", "name": "submit_guidance"}
-                continue
-            return result, submitted.id, harvested, usage
+            why = None if line_retry_done else _needs_line_items(result, messages)
+            if not why:
+                return result, submitted.id, harvested, usage
+            # Redo with a tool that can only be completed with a list of charges.
+            line_retry_done, first_result = True, result
+            messages.append({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": submitted.id,
+                 "content": "Line items required.", "is_error": True},
+                {"type": "text", "text": (
+                    "List EVERY charge on the statement or invoice with submit_line_items, in statement order: "
+                    "date, description, amount (incl. service charge and tax; negative for credits), treatment, "
+                    "category, and a note under 15 words. Use the facts already given. No new web searches.")},
+            ]})
+            tools = [search_tool, SUBMIT_TOOL, LINE_ITEMS_TOOL]
+            tool_choice = {"type": "tool", "name": "submit_line_items"}
+            continue
+
+        lined = next((b for b in resp.content
+                      if getattr(b, "type", None) == "tool_use" and b.name == "submit_line_items"), None)
+        if lined:
+            lines = list(lined.input.get("line_items") or [])
+            treatments = {ln.get("treatment") for ln in lines if ln.get("treatment") != "Not an expense"}
+            if why == "mixed" and len(treatments) <= 1:
+                return first_result, lined.id, harvested, usage   # one treatment after all: keep the plain answer
+            merged = {**first_result, "line_items": lines, "category": None, "deductible_percent": None,
+                      "functional_class": None, "reasoning": lined.input.get("reasoning") or first_result.get("reasoning"),
+                      "caveats": lined.input.get("caveats", first_result.get("caveats"))}
+            return merged, lined.id, harvested, usage
 
         if resp.stop_reason == "pause_turn":
             continue  # long server-side search; resend to let it finish

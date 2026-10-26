@@ -184,3 +184,18 @@ SUBMIT_TOOL = {
         "required": ["status", "reasoning", "web_check", "discrepancies", "sources"],
     },
 }
+
+
+LINE_ITEMS_TOOL = {
+    "name": "submit_line_items",
+    "description": "Return the per-charge treatment for every charge on the statement/invoice.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "line_items": SUBMIT_TOOL["input_schema"]["properties"]["line_items"] | {"minItems": 1},
+            "reasoning": {"type": "string", "description": "1-2 sentence overview of the pattern (no line-by-line list)."},
+            "caveats": {"type": ["string", "null"], "description": "3 short sentences or fewer."},
+        },
+        "required": ["line_items", "reasoning"],
+    },
+}

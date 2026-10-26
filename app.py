@@ -15,6 +15,16 @@ import streamlit as st
 import engine
 import report
 
+def esc(s) -> str:
+    """For text inside our HTML cards: escape HTML, keep $ from being read as math, keep line breaks."""
+    return html.escape(str(s or ""), quote=False).replace("$", "&#36;").replace("\n", "<br>")
+
+
+def md(s) -> str:
+    """For text passed to Streamlit markdown elements (st.success, st.caption, ...): keep $ literal."""
+    return str(s or "").replace("$", "\\$")
+
+
 st.set_page_config(page_title="Meals & Entertainment Guidance", page_icon="🧾", layout="centered")
 
 MODEL = st.secrets.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
@@ -199,10 +209,10 @@ if r:
         intro = r.get("reasoning", "")
         if not questions and intro:
             questions, intro = [intro], ""   # model put its questions in the explanation text
-        q_items = "".join(f"<li>{html.escape(q)}</li>" for q in questions)
+        q_items = "".join(f"<li>{esc(q)}</li>" for q in questions)
         st.markdown(
             f'<div class="result-card ask"><div class="head">Need a bit more info</div>'
-            f'<div>{html.escape(intro)}</div>'
+            f'<div>{esc(intro)}</div>'
             f'<ol style="margin:6px 0 0 0;font-weight:600">{q_items}</ol></div>',
             unsafe_allow_html=True,
         )
@@ -220,14 +230,14 @@ if r:
         if lines:
             rows = ""
             for s in report.summarize(lines):
-                ded = f" · deductible {report.money(s['deductible'])}" if s["deductible"] is not None else ""
+                ded = f" · deductible {esc(report.money(s['deductible']))}" if s["deductible"] is not None else ""
                 n = s["count"]
-                rows += (f"<div><b>{html.escape(s['treatment'])}</b>: {report.money(s['amount'])} "
+                rows += (f"<div><b>{esc(s['treatment'])}</b>: {esc(report.money(s['amount']))} "
                          f"({n} {'charge' if n == 1 else 'charges'}){ded}</div>")
             st.markdown(
                 f'<div class="result-card np"><div class="head">Mixed treatment: see line items</div>'
-                f'<div style="margin-bottom:6px">{html.escape(r.get("reasoning", ""))}</div>{rows}'
-                f'<div style="margin-top:4px"><b>Total charges reviewed: {report.money(report.total_charges(lines))}</b> '
+                f'<div style="margin-bottom:6px">{esc(r.get("reasoning", ""))}</div>{rows}'
+                f'<div style="margin-top:4px"><b>Total charges reviewed: {esc(report.money(report.total_charges(lines)))}</b> '
                 f'<span style="opacity:0.75">(excludes payments, credits, and balance forward)</span></div>{acct_note}</div>',
                 unsafe_allow_html=True,
             )
@@ -246,11 +256,11 @@ if r:
                     head += f" · {r['functional_class']}"
             else:
                 css, head = "np", r.get("functional_class") or "Functional class"
-            cat = (f'<div class="cat">Expense type: {html.escape(r["category"])}</div>'
+            cat = (f'<div class="cat">Expense type: {esc(r["category"])}</div>'
                    if r.get("category") else "")
             st.markdown(
-                f'<div class="result-card {css}"><div class="head">{html.escape(head)}</div>{cat}'
-                f'<div>{html.escape(r.get("reasoning", ""))}</div>{acct_note}</div>',
+                f'<div class="result-card {css}"><div class="head">{esc(head)}</div>{cat}'
+                f'<div>{esc(r.get("reasoning", ""))}</div>{acct_note}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -261,20 +271,20 @@ if r:
                      "the guide. Review before coding, and flag to Hardy so the guide can be updated.")
             for d in discrepancies:
                 st.markdown(
-                    f"**{d['topic']}**  \n"
-                    f"• **Guide says:** {d['guide_says']}  \n"
-                    f"• **Current sources say:** {d['web_says']}  \n"
-                    f"• **Treatment per current sources:** {d['treatment_per_web']}"
+                    f"**{md(d['topic'])}**  \n"
+                    f"• **Guide says:** {md(d['guide_says'])}  \n"
+                    f"• **Current sources say:** {md(d['web_says'])}  \n"
+                    f"• **Treatment per current sources:** {md(d['treatment_per_web'])}"
                 )
         elif wc.get("result") == "agrees":
-            st.success(f"✅ Web check agrees with the firm guide. {wc.get('summary', '')}")
+            st.success(f"✅ Web check agrees with the firm guide. {md(wc.get('summary', ''))}")
         else:
-            st.warning(f"Web check inconclusive. {wc.get('summary', '')}")
+            st.warning(f"Web check inconclusive. {md(wc.get('summary', ''))}")
 
         if r.get("receipt_summary") and ss.get("last_file"):
-            st.caption(f"**From the attachment:** {r['receipt_summary']}")
+            st.caption(f"**From the attachment:** {md(r['receipt_summary'])}")
         if r.get("caveats"):
-            st.caption(f"**Note:** {r['caveats']}")
+            st.caption(f"**Note:** {md(r['caveats'])}")
 
         sources = r.get("sources") or ss.harvested[:6]
         if sources and not r.get("sources"):
@@ -282,7 +292,7 @@ if r:
         if sources:
             with st.expander("Sources checked"):
                 for s in sources:
-                    st.markdown(f"- [{s['title']}]({s['url']})")
+                    st.markdown(f"- [{md(s['title'])}]({s['url']})")
 
         if not ss.get("last_file"):
             r = {**r, "receipt_summary": None}   # never show attachment details when nothing was attached
