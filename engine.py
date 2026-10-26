@@ -166,7 +166,7 @@ def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[di
 
     for _ in range(MAX_LOOPS):
         resp = client.messages.create(
-            model=model, max_tokens=8000, temperature=0, system=system, tools=tools,
+            model=model, max_tokens=8000, system=system, tools=tools,
             tool_choice=tool_choice, messages=messages,
         )
         messages.append({"role": "assistant", "content": resp.content})
