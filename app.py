@@ -196,10 +196,13 @@ if r:
     entity_used = ss.get("last_entity", "Business (taxable)")
     if r.get("status") == "needs_info":
         questions = r.get("questions") or ([r["question"]] if r.get("question") else [])
+        intro = r.get("reasoning", "")
+        if not questions and intro:
+            questions, intro = [intro], ""   # model put its questions in the explanation text
         q_items = "".join(f"<li>{html.escape(q)}</li>" for q in questions)
         st.markdown(
             f'<div class="result-card ask"><div class="head">Need a bit more info</div>'
-            f'<div>{html.escape(r.get("reasoning", ""))}</div>'
+            f'<div>{html.escape(intro)}</div>'
             f'<ol style="margin:6px 0 0 0;font-weight:600">{q_items}</ol></div>',
             unsafe_allow_html=True,
         )

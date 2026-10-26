@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import re
 from datetime import date
 from pathlib import Path
 
@@ -34,6 +35,38 @@ IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 MAX_IMAGE_SIDE = 1568   # Claude downsizes anything larger anyway
 MAX_RECEIPT_PAGES = 3
 MAX_LOOPS = 6  # guards against an endless pause_turn / retry cycle
+
+
+LINE_REQUEST = re.compile(r"\beach (charge|line|item)|line[- ]by[- ]line|line items?|itemi[sz]|every (charge|line)|"
+                          r"each of the (charges|lines|items)", re.I)
+PCTS = re.compile(r"\b(0|50|100)\s?%")
+
+
+def _user_text(messages: list[dict]) -> str:
+    parts = []
+    for m in messages:
+        if m.get("role") != "user":
+            continue
+        c = m.get("content")
+        if isinstance(c, str):
+            parts.append(c)
+        elif isinstance(c, list):
+            parts += [b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"]
+    return " ".join(parts)
+
+
+def _needs_line_items(result: dict, messages: list[dict]) -> bool:
+    """True when a final answer should have line items but doesn't: the user asked for each charge,
+    or the answer itself describes more than one treatment."""
+    if result.get("status") != "final" or result.get("line_items"):
+        return False
+    if LINE_REQUEST.search(_user_text(messages)):
+        return True
+    has_attachment = any(isinstance(b, dict) and b.get("type") in ("document", "image")
+                         for m in messages if m.get("role") == "user" and isinstance(m.get("content"), list)
+                         for b in m["content"])
+    answer = " ".join(str(result.get(k) or "") for k in ("reasoning", "caveats"))
+    return has_attachment and len(set(PCTS.findall(answer))) > 1
 
 
 class GuidanceError(Exception):
@@ -127,6 +160,7 @@ def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[di
     tools = [search_tool, SUBMIT_TOOL]
     harvested: list[dict] = []
     tool_choice = {"type": "auto"}
+    line_retry_done = False
 
     for _ in range(MAX_LOOPS):
         resp = client.messages.create(
@@ -144,9 +178,28 @@ def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[di
         stu = getattr(u, "server_tool_use", None)
         usage["searches"] += (getattr(stu, "web_search_requests", 0) or 0) if stu else 0
 
-        for block in resp.content:
-            if getattr(block, "type", None) == "tool_use" and block.name == "submit_guidance":
-                return dict(block.input), block.id, harvested, usage
+        submitted = next((b for b in resp.content
+                          if getattr(b, "type", None) == "tool_use" and b.name == "submit_guidance"), None)
+        if submitted:
+            result = dict(submitted.input)
+            if not line_retry_done and _needs_line_items(result, messages):
+                # One forced redo: the answer covers charges with different treatments but has no line items.
+                line_retry_done = True
+                messages.append({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": submitted.id,
+                     "content": "Rejected: line_items missing.", "is_error": True},
+                    {"type": "text", "text": (
+                        "This expense has charges that get different treatments (or the user asked about each "
+                        "charge). Resubmit with line_items listing EVERY charge, in statement order, with its "
+                        "date, description, amount (incl. service charge and tax), treatment, category, and a "
+                        "short note. Set category, deductible_percent, and functional_class to null. Keep caveats "
+                        "to 3 short sentences and receipt_summary to one line. No new web searches. If there is "
+                        "really only one charge, or every charge gets the same treatment, resubmit your answer "
+                        "unchanged with line_items empty.")},
+                ]})
+                tool_choice = {"type": "tool", "name": "submit_guidance"}
+                continue
+            return result, submitted.id, harvested, usage
 
         if resp.stop_reason == "pause_turn":
             continue  # long server-side search; resend to let it finish
