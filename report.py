@@ -113,6 +113,10 @@ def build_pdf(r: dict, entity: str, description: str, filename: str | None, qa: 
         summ = summarize(lines)
         srows = []
         for s in summ:
+            if s["treatment"] == "Not an expense":
+                srows.append(Paragraph(f"<b>Not an expense</b>: {s['count']} "
+                                       f"{'line' if s['count'] == 1 else 'lines'} (balance forward, payments, credits)", BASE))
+                continue
             ded = f" &nbsp;(deductible: {money(s['deductible'])})" if s["deductible"] is not None else ""
             srows.append(Paragraph(f"<b>{_t(s['treatment'])}</b>: {money(s['amount'])} "
                                    f"({s['count']} {'charge' if s['count'] == 1 else 'charges'}){ded}", BASE))
@@ -140,7 +144,7 @@ def build_pdf(r: dict, entity: str, description: str, filename: str | None, qa: 
             tone = LINE_TONE.get(ln.get("treatment"))
             if tone:
                 styles.append(("BACKGROUND", (4, i), (4, i), tone))
-        tbl = Table(data, colWidths=[0.65 * inch, 2.55 * inch, 1.6 * inch, 0.85 * inch, 1.35 * inch], repeatRows=1)
+        tbl = Table(data, colWidths=[0.82 * inch, 2.38 * inch, 1.6 * inch, 0.85 * inch, 1.35 * inch], repeatRows=1)
         tbl.setStyle(TableStyle(styles))
         story.append(tbl)
     else:
@@ -179,6 +183,10 @@ def build_pdf(r: dict, entity: str, description: str, filename: str | None, qa: 
         label = {"agrees": "Agrees with the firm guide.", "inconclusive": "Inconclusive."}.get(
             wc.get("result"), "")
         story.append(Paragraph(f"<b>{label}</b> {_t(wc.get('summary'))}", BASE))
+
+    if r.get("assumptions"):
+        story.append(Paragraph("Assumed (confirm)", H2))
+        story.append(Paragraph(_t("; ".join(r["assumptions"])), BASE))
 
     if r.get("caveats"):
         story.append(Paragraph("Notes", H2))

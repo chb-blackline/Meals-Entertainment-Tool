@@ -34,7 +34,7 @@ GUIDES = [
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 MAX_IMAGE_SIDE = 1568   # Claude downsizes anything larger anyway
 MAX_RECEIPT_PAGES = 3
-MAX_LOOPS = 6  # guards against an endless pause_turn / retry cycle
+MAX_LOOPS = 8  # guards against an endless pause_turn / retry cycle
 
 
 LINE_REQUEST = re.compile(r"\beach (charge|line|item)|line[- ]by[- ]line|line items?|itemi[sz]|every (charge|line)|"
@@ -69,6 +69,14 @@ def _needs_line_items(result: dict, messages: list[dict]) -> str | None:
     if has_attachment and len(set(PCTS.findall(answer))) > 1:
         return "mixed"
     return None
+
+
+
+def _answered_questions(messages: list[dict]) -> bool:
+    """True once the bookkeeper has replied to at least one round of clarifying questions."""
+    return any(isinstance(b, dict) and b.get("type") == "tool_result" and b.get("content") == "Question shown to the bookkeeper."
+               for m in messages if m.get("role") == "user" and isinstance(m.get("content"), list)
+               for b in m["content"])
 
 
 class GuidanceError(Exception):
@@ -163,6 +171,7 @@ def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[di
     harvested: list[dict] = []
     tool_choice = {"type": "auto"}
     line_retry_done, why, first_result = False, None, None
+    ask_retry_done = False
 
     for _ in range(MAX_LOOPS):
         resp = client.messages.create(
@@ -184,6 +193,21 @@ def run(client, model: str, messages: list[dict], search_tool: dict) -> tuple[di
                           if getattr(b, "type", None) == "tool_use" and b.name == "submit_guidance"), None)
         if submitted:
             result = dict(submitted.input)
+            if (not ask_retry_done and result.get("status") == "final" and result.get("assumptions")
+                    and not _answered_questions(messages)):
+                # Material facts were assumed without asking: send it back to ask instead.
+                ask_retry_done = True
+                listed = "; ".join(result["assumptions"])
+                messages.append({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": submitted.id,
+                     "content": "Assumed facts instead of asking.", "is_error": True},
+                    {"type": "text", "text": (
+                        f"You assumed: {listed}. Don't assume facts that change the treatment. Resubmit with "
+                        "status needs_info and ask the bookkeeper about them (up to three questions, grouped). "
+                        "No new web searches.")},
+                ]})
+                tool_choice = {"type": "tool", "name": "submit_guidance"}
+                continue
             why = None if line_retry_done else _needs_line_items(result, messages)
             if not why:
                 return result, submitted.id, harvested, usage

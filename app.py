@@ -62,6 +62,13 @@ h1.app-title {font-size: 1.45rem; margin: 0 0 0.1rem 0; padding: 0;}
 .result-card .head {font-weight: 700; font-size: 1.05rem; margin-bottom: 2px;}
 .result-card .cat {font-weight: 600; margin-bottom: 4px;}
 .result-card, .result-card * {color: #1f2937;}
+.ln-wrap {overflow-x: auto; margin: 6px 0 4px 0;}
+.ln-table {width: 100%; border-collapse: collapse; font-size: 0.82rem;}
+.ln-table th, .ln-table td {border: 1px solid #d3d1c7; padding: 5px 7px; vertical-align: top; text-align: left; color: #1f2937;}
+.ln-table th {background: #f3f4f6; font-weight: 600;}
+.ln-table td.amt, .ln-table th.amt {text-align: right; white-space: nowrap;}
+.ln-table td:first-child {white-space: nowrap;}
+.ln-note {font-size: 0.74rem; color: #6b7280; margin-top: 2px;}
 </style>
 """,
     unsafe_allow_html=True,
@@ -230,8 +237,12 @@ if r:
         if lines:
             rows = ""
             for s in report.summarize(lines):
-                ded = f" · deductible {esc(report.money(s['deductible']))}" if s["deductible"] is not None else ""
                 n = s["count"]
+                if s["treatment"] == "Not an expense":
+                    rows += (f"<div><b>Not an expense</b>: {n} {'line' if n == 1 else 'lines'} "
+                             f"(balance forward, payments, credits)</div>")
+                    continue
+                ded = f" · deductible {esc(report.money(s['deductible']))}" if s["deductible"] is not None else ""
                 rows += (f"<div><b>{esc(s['treatment'])}</b>: {esc(report.money(s['amount']))} "
                          f"({n} {'charge' if n == 1 else 'charges'}){ded}</div>")
             st.markdown(
@@ -241,12 +252,19 @@ if r:
                 f'<span style="opacity:0.75">(excludes payments, credits, and balance forward)</span></div>{acct_note}</div>',
                 unsafe_allow_html=True,
             )
-            st.dataframe(
-                [{"Date": ln.get("date") or "", "Charge": ln.get("description", ""),
-                  "Amount": float(ln.get("amount") or 0), "Treatment": ln.get("treatment", ""),
-                  "Expense type": ln.get("category") or "", "Note": ln.get("note") or ""} for ln in lines],
-                hide_index=True, width="stretch",
-                column_config={"Amount": st.column_config.NumberColumn(format="$%.2f")},
+            tone = {"100%": "#eaf3de", "50%": "#e1f5ee", "0%": "#fcebeb", "Personal / not business": "#eef0f3"}
+            trs = "".join(
+                f'<tr><td>{esc(ln.get("date"))}</td>'
+                f'<td>{esc(ln.get("description"))}'
+                + (f'<div class="ln-note">{esc(ln["note"])}</div>' if ln.get("note") else "")
+                + f'</td><td>{esc(ln.get("category"))}</td>'
+                f'<td class="amt">{esc(report.money(float(ln.get("amount") or 0)))}</td>'
+                f'<td style="background:{tone.get(ln.get("treatment"), "transparent")}"><b>{esc(ln.get("treatment"))}</b></td></tr>'
+                for ln in lines)
+            st.markdown(
+                '<div class="ln-wrap"><table class="ln-table"><thead><tr><th>Date</th><th>Charge</th>'
+                f'<th>Expense type</th><th class="amt">Amount</th><th>Treatment</th></tr></thead><tbody>{trs}</tbody></table></div>',
+                unsafe_allow_html=True,
             )
         else:
             pct = r.get("deductible_percent")
@@ -283,6 +301,8 @@ if r:
 
         if r.get("receipt_summary") and ss.get("last_file"):
             st.caption(f"**From the attachment:** {md(r['receipt_summary'])}")
+        if r.get("assumptions"):
+            st.caption("**Assumed (confirm):** " + md("; ".join(r["assumptions"])))
         if r.get("caveats"):
             st.caption(f"**Note:** {md(r['caveats'])}")
 

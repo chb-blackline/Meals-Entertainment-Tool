@@ -79,6 +79,11 @@ MULTIPLE CHARGES (statements, itemized invoices, club bills)
   total including service charge and tax.
 - In that case set category, deductible_percent, and functional_class to null. Never put a single percentage
   in the headline when lines differ. reasoning is a 1-2 sentence overview of the pattern.
+- Before answering a statement, confirm the facts that drive treatment unless the user already stated them:
+  (1) for each meal or group of meals, whether a client, prospect, or other business contact attended and
+  business was discussed; (2) whether any charges were personal (spa, salon, pro-shop merchandise, personal
+  dues are common examples); (3) who paid the bill (the business, or the individual with reimbursement).
+  Ask about all of them in one round (up to three questions). Never assume a business contact was present.
 - Use treatment "Personal / not business" for charges the user says are personal; "Not an expense" for
   balance-forward lines, payments, and credits.
 - Keep each line's note under 15 words. Don't repeat the line-by-line detail in caveats.
@@ -172,6 +177,13 @@ SUBMIT_TOOL = {
                     },
                     "required": ["description", "amount", "treatment"],
                 },
+            },
+            "assumptions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Facts you ASSUMED that the user did not state and that affect the treatment "
+                               "(e.g. 'a client attended the 10/3 dinner'). Empty if none. Be honest: an "
+                               "unlisted assumption is an error.",
             },
             "caveats": {"type": ["string", "null"]},
             "questions": {
